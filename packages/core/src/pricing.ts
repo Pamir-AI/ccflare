@@ -76,6 +76,16 @@ const BUNDLED_PRICING: ApiResponse = {
 					cache_write: 18.75,
 				},
 			},
+			[CLAUDE_MODEL_IDS.OPUS_4_1]: {
+				id: CLAUDE_MODEL_IDS.OPUS_4_1,
+				name: MODEL_DISPLAY_NAMES[CLAUDE_MODEL_IDS.OPUS_4_1],
+				cost: {
+					input: 15,
+					output: 75,
+					cache_read: 1.5,
+					cache_write: 18.75,
+				},
+			},
 		},
 	},
 };
@@ -179,12 +189,12 @@ class PriceCatalogue {
 			return this.priceData;
 		}
 
-		// Try loading from disk cache
-		let data = await this.loadFromCache();
+		// Always attempt to fetch fresh pricing first (once per process start)
+		let data = await this.fetchRemote();
 
-		// If no cache, fetch remote
+		// If remote fetch failed (offline or error), fall back to disk cache
 		if (!data) {
-			data = await this.fetchRemote();
+			data = await this.loadFromCache();
 		}
 
 		// Fall back to bundled pricing
