@@ -20,6 +20,7 @@ export interface BeginResult {
 	pkce: PKCEChallenge;
 	oauthConfig: OAuthProviderConfig;
 	mode: "max" | "console"; // Track mode to handle differently in complete()
+	state?: string; // OAuth state parameter
 }
 
 export interface CompleteOptions {
@@ -93,15 +94,18 @@ export class OAuthFlow {
 		const oauthConfig = oauthProvider.getOAuthConfig(mode);
 		oauthConfig.clientId = runtime.clientId;
 
-		// Generate auth URL
-		const authUrl = oauthProvider.generateAuthUrl(oauthConfig, pkce);
+		// Generate auth URL with state
+		const { url: authUrl, state } = oauthProvider.generateAuthUrl(
+			oauthConfig,
+			pkce,
+		);
 
 		// Create session ID for this OAuth flow
 		const sessionId = crypto.randomUUID();
 
 		// NOTE: OAuthFlow itself does not persist the session.
 		//       The caller (HTTP-API oauth-init handler) must
-		//       store {sessionId, verifier, mode, tier} – typically
+		//       store {sessionId, verifier, state, mode, tier} – typically
 		//       via DatabaseOperations.createOAuthSession().
 
 		return {
@@ -110,6 +114,7 @@ export class OAuthFlow {
 			pkce,
 			oauthConfig,
 			mode,
+			state,
 		};
 	}
 
@@ -134,6 +139,13 @@ export class OAuthFlow {
 	): Promise<AccountCreated> {
 		const { code, tier = 1, name } = opts;
 
+		// Check if account already exists
+		const existingAccounts = this.dbOps.getAllAccounts();
+		const existingAccount = existingAccounts.find((acc) => acc.name === name);
+		if (existingAccount) {
+			throw new Error(`Account with name '${name}' already exists`);
+		}
+
 		// Get OAuth provider
 		const oauthProvider = getOAuthProvider("anthropic");
 		if (!oauthProvider) {
@@ -145,17 +157,32 @@ export class OAuthFlow {
 			code,
 			flowData.pkce.verifier,
 			flowData.oauthConfig,
+			flowData.state,
 		);
 
 		const accountId = crypto.randomUUID();
 
-		// Handle console mode - create API key
-		if (flowData.mode === "console" || !tokens.refreshToken) {
+		// For Max mode, the access_token IS the API key (sk-ant-oat01-)
+		// For Console mode, we might need to create a different type of API key
+		if (
+			flowData.mode === "max" &&
+			tokens.accessToken.startsWith("sk-ant-oat01-")
+		) {
+			// Max mode: access_token is already the API key we need
+			console.log("Max mode: Using OAuth access_token as API key");
+			return this.createAccountWithApiKey(
+				accountId,
+				name,
+				tokens.accessToken,
+				tier,
+			);
+		} else if (flowData.mode === "console" || !tokens.refreshToken) {
+			// Console mode: might need to create a different API key
 			const apiKey = await this.createAnthropicApiKey(tokens.accessToken);
 			return this.createAccountWithApiKey(accountId, name, apiKey, tier);
 		}
 
-		// Handle max mode - standard OAuth flow
+		// Fallback: standard OAuth flow (shouldn't reach here)
 		return this.createAccountWithOAuth(accountId, name, tokens, tier);
 	}
 
@@ -260,9 +287,8 @@ export class OAuthFlow {
 		db.run(
 			`
 			INSERT INTO accounts (
-				id, name, provider, api_key, refresh_token, access_token, expires_at, 
-				created_at, request_count, total_requests, account_tier
-			) VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?, 0, 0, ?)
+				id, name, provider, api_key, created_at, request_count, total_requests, account_tier
+			) VALUES (?, ?, ?, ?, ?, 0, 0, ?)
 			`,
 			[id, name, "anthropic", apiKey, Date.now(), tier],
 		);

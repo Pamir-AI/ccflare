@@ -99,6 +99,9 @@ export class AnthropicProvider extends BaseProvider {
 	}
 
 	buildUrl(path: string, query: string): string {
+		// For now, all requests go to api.anthropic.com
+		// Both console and max modes use the same API endpoint
+		// The difference is in the authentication method (API key vs OAuth)
 		return `https://api.anthropic.com${path}${query}`;
 	}
 
@@ -112,11 +115,32 @@ export class AnthropicProvider extends BaseProvider {
 		// Set authentication header
 		if (accessToken) {
 			newHeaders.set("Authorization", `Bearer ${accessToken}`);
+			log.info(`Set OAuth token: Bearer ${accessToken.substring(0, 10)}...`);
 		} else if (apiKey) {
-			newHeaders.set("x-api-key", apiKey);
+			// For sk-ant-oat01- keys, use Bearer format (like Claude Code)
+			if (apiKey.startsWith("sk-ant-oat01-")) {
+				newHeaders.set("Authorization", `Bearer ${apiKey}`);
+				log.info(`Set OAuth API key: Bearer ${apiKey.substring(0, 20)}...`);
+			} else {
+				newHeaders.set("x-api-key", apiKey);
+				log.info(`Set API key: ${apiKey.substring(0, 10)}...`);
+			}
+		} else {
+			log.warn(`No authentication provided - using client's headers`);
 		}
 
-		// Remove host header
+		// CRITICAL: Always set anthropic-version header
+		// This is required for OAuth tokens to work with the API
+		newHeaders.set("anthropic-version", "2023-06-01");
+
+		// Add Claude Code compatibility headers if using OAuth API keys
+		const auth = newHeaders.get("Authorization");
+		if (auth?.includes("sk-ant-oat01-")) {
+			newHeaders.set("anthropic-beta", "oauth-2025-04-20");
+			log.info("Added anthropic-beta header for Claude Code compatibility");
+		}
+
+		// Always remove host header
 		newHeaders.delete("host");
 
 		// Remove compression headers to avoid decompression issues

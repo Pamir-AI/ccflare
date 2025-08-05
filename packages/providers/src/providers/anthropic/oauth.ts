@@ -23,7 +23,10 @@ export class AnthropicOAuthProvider implements OAuthProvider {
 		};
 	}
 
-	generateAuthUrl(config: OAuthProviderConfig, pkce: PKCEChallenge): string {
+	generateAuthUrl(
+		config: OAuthProviderConfig,
+		pkce: PKCEChallenge,
+	): { url: string; state: string } {
 		const url = new URL(config.authorizeUrl);
 		url.searchParams.set("code", "true");
 		url.searchParams.set("client_id", config.clientId);
@@ -32,37 +35,80 @@ export class AnthropicOAuthProvider implements OAuthProvider {
 		url.searchParams.set("scope", config.scopes.join(" "));
 		url.searchParams.set("code_challenge", pkce.challenge);
 		url.searchParams.set("code_challenge_method", "S256");
-		url.searchParams.set("state", pkce.verifier);
-		return url.toString();
+		// Generate a separate state parameter (different from verifier)
+		const state = crypto.randomUUID().replace(/-/g, "");
+		url.searchParams.set("state", state);
+		return { url: url.toString(), state };
 	}
 
 	async exchangeCode(
 		code: string,
 		verifier: string,
 		config: OAuthProviderConfig,
+		stateParam?: string,
 	): Promise<TokenResult> {
-		const splits = code.split("#");
+		// Handle both "code#state" format and plain code
+		let authCode = code;
+		let extractedState = "";
+
+		if (code.includes("#")) {
+			const splits = code.split("#");
+			authCode = splits[0];
+			extractedState = splits[1] || "";
+		}
+
+		// Use the passed state parameter if provided, otherwise use extracted state
+		const finalState = stateParam || extractedState;
+
+		// Log for debugging
+		console.log("OAuth token exchange:", {
+			tokenUrl: config.tokenUrl,
+			codeLength: authCode.length,
+			hasState: !!finalState,
+			stateLength: finalState?.length,
+			clientId: config.clientId,
+		});
+
+		// Build request body - Anthropic expects JSON!
+		const requestBody = {
+			grant_type: "authorization_code",
+			code: authCode,
+			redirect_uri: config.redirectUri,
+			client_id: config.clientId,
+			code_verifier: verifier,
+			state: finalState,
+		};
+
+		console.log("OAuth request body:", JSON.stringify(requestBody, null, 2));
+
 		const response = await fetch(config.tokenUrl, {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				code: splits[0],
-				state: splits[1],
-				grant_type: "authorization_code",
-				client_id: config.clientId,
-				redirect_uri: config.redirectUri,
-				code_verifier: verifier,
-			}),
+			headers: {
+				"Content-Type": "application/json",
+				Accept: "application/json, text/plain, */*",
+				"User-Agent": "axios/1.8.4", // Match what Claude CLI sends
+			},
+			body: JSON.stringify(requestBody),
 		});
 
 		if (!response.ok) {
 			let errorDetails: { error?: string; error_description?: string } | null =
 				null;
+			let rawError = "";
 			try {
-				errorDetails = await response.json();
+				const text = await response.text();
+				rawError = text;
+				errorDetails = JSON.parse(text);
 			} catch {
 				// Failed to parse error response
+				console.error("Raw error response:", rawError);
 			}
+
+			console.error("OAuth exchange failed:", {
+				status: response.status,
+				statusText: response.statusText,
+				errorDetails,
+			});
 
 			const errorMessage =
 				errorDetails?.error_description ||

@@ -53,7 +53,7 @@ export function createOAuthInitHandler(dbOps: DatabaseOperations) {
 					mode,
 				});
 
-				// Store tier in session for later use
+				// Store tier and state in session for later use
 				dbOps.createOAuthSession(
 					flowResult.sessionId,
 					name,
@@ -61,6 +61,7 @@ export function createOAuthInitHandler(dbOps: DatabaseOperations) {
 					mode,
 					tier,
 					10, // 10 minute TTL
+					flowResult.state,
 				);
 
 				return jsonResponse({
@@ -128,6 +129,7 @@ export function createOAuthCallbackHandler(dbOps: DatabaseOperations) {
 			const {
 				accountName: name,
 				verifier,
+				state,
 				mode: savedMode,
 				tier: savedTier,
 			} = oauthSession;
@@ -155,15 +157,16 @@ export function createOAuthCallbackHandler(dbOps: DatabaseOperations) {
 					pkce: { verifier, challenge: "" }, // Only verifier is needed
 					oauthConfig,
 					mode: savedMode || "max", // Add mode to match BeginResult type
+					state,
 				};
+
+				// Delete session BEFORE completing flow to prevent duplicate processing
+				dbOps.deleteOAuthSession(sessionId);
 
 				await oauthFlow.complete(
 					{ sessionId, code, tier: savedTier, name },
 					flowData,
 				);
-
-				// Clean up OAuth session from database
-				dbOps.deleteOAuthSession(sessionId);
 
 				return jsonResponse({
 					success: true,

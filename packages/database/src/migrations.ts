@@ -12,7 +12,7 @@ export function ensureSchema(db: Database): void {
 			name TEXT NOT NULL,
 			provider TEXT DEFAULT 'anthropic',
 			api_key TEXT,
-			refresh_token TEXT NOT NULL,
+			refresh_token TEXT,
 			access_token TEXT,
 			expires_at INTEGER,
 			created_at INTEGER NOT NULL,
@@ -168,6 +168,27 @@ export function runMigrations(db: Database): void {
 			"ALTER TABLE accounts ADD COLUMN rate_limit_remaining INTEGER",
 		).run();
 		log.info("Added rate_limit_remaining column to accounts table");
+	}
+
+	// Check columns in oauth_sessions table
+	const oauthSessionsInfo = db
+		.prepare("PRAGMA table_info(oauth_sessions)")
+		.all() as Array<{
+		cid: number;
+		name: string;
+		type: string;
+		notnull: number;
+		// biome-ignore lint/suspicious/noExplicitAny: SQLite pragma can return various default value types
+		dflt_value: any;
+		pk: number;
+	}>;
+
+	const oauthSessionsColumnNames = oauthSessionsInfo.map((col) => col.name);
+
+	// Add state column if it doesn't exist
+	if (!oauthSessionsColumnNames.includes("state")) {
+		db.prepare("ALTER TABLE oauth_sessions ADD COLUMN state TEXT").run();
+		log.info("Added state column to oauth_sessions table");
 	}
 
 	// Check columns in requests table

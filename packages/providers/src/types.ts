@@ -98,8 +98,12 @@ export interface OAuthProvider {
 		code: string,
 		verifier: string,
 		config: OAuthProviderConfig,
+		state?: string,
 	): Promise<TokenResult>;
-	generateAuthUrl(config: OAuthProviderConfig, pkce: PKCEChallenge): string;
+	generateAuthUrl(
+		config: OAuthProviderConfig,
+		pkce: PKCEChallenge,
+	): { url: string; state: string };
 }
 
 export interface PKCEChallenge {

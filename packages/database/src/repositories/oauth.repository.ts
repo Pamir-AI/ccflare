@@ -3,6 +3,7 @@ import { BaseRepository } from "./base.repository";
 export interface OAuthSession {
 	accountName: string;
 	verifier: string;
+	state?: string;
 	mode: "console" | "max";
 	tier: number;
 }
@@ -15,16 +16,26 @@ export class OAuthRepository extends BaseRepository<OAuthSession> {
 		mode: "console" | "max",
 		tier: number,
 		ttlMinutes = 10,
+		state?: string,
 	): void {
 		const now = Date.now();
 		const expiresAt = now + ttlMinutes * 60 * 1000;
 
 		this.run(
 			`
-			INSERT INTO oauth_sessions (id, account_name, verifier, mode, tier, created_at, expires_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO oauth_sessions (id, account_name, verifier, mode, tier, created_at, expires_at, state)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		`,
-			[sessionId, accountName, verifier, mode, tier, now, expiresAt],
+			[
+				sessionId,
+				accountName,
+				verifier,
+				mode,
+				tier,
+				now,
+				expiresAt,
+				state || null,
+			],
 		);
 	}
 
@@ -32,12 +43,13 @@ export class OAuthRepository extends BaseRepository<OAuthSession> {
 		const row = this.get<{
 			account_name: string;
 			verifier: string;
+			state?: string;
 			mode: "console" | "max";
 			tier: number;
 			expires_at: number;
 		}>(
 			`
-			SELECT account_name, verifier, mode, tier, expires_at 
+			SELECT account_name, verifier, state, mode, tier, expires_at 
 			FROM oauth_sessions 
 			WHERE id = ? AND expires_at > ?
 		`,
@@ -49,6 +61,7 @@ export class OAuthRepository extends BaseRepository<OAuthSession> {
 		return {
 			accountName: row.account_name,
 			verifier: row.verifier,
+			state: row.state,
 			mode: row.mode,
 			tier: row.tier,
 		};

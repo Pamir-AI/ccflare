@@ -69,6 +69,11 @@ export async function addAccount(
 	}
 
 	// Get authorization code
+	console.log(
+		"\nAfter authorizing, you'll be redirected to a page showing the authorization code.",
+	);
+	console.log("Copy the code shown on the page or from the URL.");
+
 	const code = await adapter.input("\nEnter the authorization code: ");
 
 	// Get tier for Max accounts

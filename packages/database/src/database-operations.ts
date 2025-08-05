@@ -207,6 +207,7 @@ export class DatabaseOperations implements StrategyStore, Disposable {
 		mode: "console" | "max",
 		tier: number,
 		ttlMinutes = 10,
+		state?: string,
 	): void {
 		this.oauth.createSession(
 			sessionId,
@@ -215,12 +216,14 @@ export class DatabaseOperations implements StrategyStore, Disposable {
 			mode,
 			tier,
 			ttlMinutes,
+			state,
 		);
 	}
 
 	getOAuthSession(sessionId: string): {
 		accountName: string;
 		verifier: string;
+		state?: string;
 		mode: "console" | "max";
 		tier: number;
 	} | null {
